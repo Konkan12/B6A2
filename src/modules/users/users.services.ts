@@ -1,11 +1,9 @@
+import bcrypt from "bcryptjs";
 import { JwtPayload } from "jsonwebtoken";
 import { pool } from "../../config/db";
 
 const getAllUsers = async () => {
-  const result = await pool.query(`
-    SELECT id, name, email, phone, role FROM users;
-    `);
-  return result;
+  return pool.query(`SELECT id, name, email, phone, role FROM users`);
 };
 
 const updateUser = async (
@@ -14,68 +12,51 @@ const updateUser = async (
   loggedInUser: JwtPayload
 ) => {
   if (loggedInUser.id != id && loggedInUser.role !== "admin") {
-    throw new Error("You are not authorized to update this user");
+    throw new Error("Unauthorized");
   }
 
-  const targetUser = await pool.query(
-    `
-        SELECT * FROM users WHERE id = $1
-        `,
-    [id]
-  );
+  const user = await pool.query(`SELECT * FROM users WHERE id=$1`, [id]);
+  if (user.rows.length === 0) throw new Error("User not found");
 
-  if (targetUser.rows.length === 0) {
-    throw new Error(`User with id ${id} not found`);
+  if (payload.password) {
+    payload.password = await bcrypt.hash(payload.password as string, 10);
   }
 
-  if (loggedInUser.role !== "admin" && payload?.role) {
+  if (loggedInUser.role !== "admin") {
     delete payload.role;
   }
 
-  const updatedUser = {
-    ...targetUser.rows[0],
-    ...payload,
-    id: targetUser.rows[0].id,
-  };
-  const { name, email, password, phone, role } = updatedUser;
+  const updated = { ...user.rows[0], ...payload };
 
-  const result = await pool.query(
+  return pool.query(
     `
-        UPDATE users SET name = $1, email = $2, password = $3, phone = $4, role = $5 WHERE id = $6 RETURNING *
-
-        `,
-    [name, email, password, phone, role, id]
+    UPDATE users
+    SET name=$1, email=$2, password=$3, phone=$4, role=$5
+    WHERE id=$6
+    RETURNING id, name, email, phone, role
+    `,
+    [
+      updated.name,
+      updated.email,
+      updated.password,
+      updated.phone,
+      updated.role,
+      id,
+    ]
   );
-  return result;
 };
 
 const deleteUserById = async (id: string) => {
-  const targetUser = await pool.query(
-    `
-        SELECT * FROM users WHERE id = $1
-        `,
+  const activeBooking = await pool.query(
+    `SELECT * FROM bookings WHERE customer_id=$1 AND status='active'`,
     [id]
   );
 
-  if (targetUser.rows.length === 0) {
-    throw new Error(`User with id ${id} not found`);
-  }
-  const user = await pool.query(
-    `
-        SELECT * FROM bookings WHERE customer_id = $1
-        `,
-    [id]
-  );
-  if (user.rows.length !== 0) {
+  if (activeBooking.rows.length > 0) {
     throw new Error("User has active bookings");
   }
-  const result = await pool.query(
-    `
-        DELETE FROM users WHERE id = $1
-        `,
-    [id]
-  );
-  return result;
+
+  return pool.query(`DELETE FROM users WHERE id=$1`, [id]);
 };
 
 export const userServices = {

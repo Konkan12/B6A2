@@ -15,12 +15,7 @@ app.use(express.json());
 initDB();
 
 app.get("/", (req: Request, res: Response) => {
-  const data = {
-    success: true,
-    message: "Root path, Server is running",
-    data: null,
-  };
-  sendJson(res, data, 200);
+  res.send("Express server is running");
 });
 
 // vehicle routes
